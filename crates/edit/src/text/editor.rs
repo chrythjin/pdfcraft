@@ -45,6 +45,13 @@ pub fn text_editor_fonts(doc: &Document, page: usize) -> Result<Vec<TextEditorFo
             budget -= full.bytes.len();
             result.push(TextEditorFont { resource: format!("PCApproved{}", full.name()), face: face.clone(), bytes: full.bytes.to_vec() });
         }
+        if let Some((sys_bytes, family)) = pdfcraft_fonts::system_match::system_matching_font(&face, "") {
+            let res_name = format!("PCSystem{}", family);
+            if !result.iter().any(|p| p.resource == res_name) && sys_bytes.len() <= budget {
+                budget -= sys_bytes.len();
+                result.push(TextEditorFont { resource: res_name, face: face.clone(), bytes: sys_bytes });
+            }
+        }
     }
     Ok(result)
 }

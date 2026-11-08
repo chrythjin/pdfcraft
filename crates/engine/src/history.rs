@@ -140,8 +140,8 @@ pub(crate) struct Editor {
 #[derive(Default)]
 pub(crate) struct TextBlocksCache(std::sync::Mutex<Option<CachedTextBlocks>>);
 
-/// The document state, the page (0-based) and its text blocks.
-type CachedTextBlocks = (pdfcraft_cos::ReadState, usize, Arc<Vec<pdfcraft_edit::TextBlock>>);
+/// The document state, the page (0-based), granularity mode and its text blocks.
+type CachedTextBlocks = (pdfcraft_cos::ReadState, usize, u8, Arc<Vec<pdfcraft_edit::TextBlock>>);
 
 impl Clone for TextBlocksCache {
     fn clone(&self) -> Self {
@@ -153,16 +153,18 @@ impl Clone for TextBlocksCache {
 impl Editor {
     /// The text blocks on `page` (0-based), from the cache when the document hasn't changed.
     pub(crate) fn text_blocks(&self, page: usize) -> Result<Arc<Vec<pdfcraft_edit::TextBlock>>, EditError> {
+        let g = pdfcraft_edit::current_granularity() as u8;
         if let Ok(cache) = self.text_blocks.0.lock()
-            && let Some((state, p, blocks)) = cache.as_ref()
+            && let Some((state, p, cached_g, blocks)) = cache.as_ref()
             && *p == page
+            && *cached_g == g
             && state.matches(&self.cos)
         {
             return Ok(blocks.clone());
         }
         let blocks = Arc::new(pdfcraft_edit::text_blocks(&self.cos, page)?);
         if let Ok(mut cache) = self.text_blocks.0.lock() {
-            *cache = Some((self.cos.read_state(), page, blocks.clone()));
+            *cache = Some((self.cos.read_state(), page, g, blocks.clone()));
         }
         Ok(blocks)
     }

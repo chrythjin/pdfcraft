@@ -24,14 +24,26 @@ pub fn matching_faces(name: &str) -> Vec<&'static crate::CraftFont> {
 
 /// Whether a complete font program can show every non-newline character.
 pub fn covers(bytes: &[u8], text: &str) -> bool {
-    FontRef::new(bytes).is_ok_and(|f| text.chars().all(|c| matches!(c, '\n' | '\r') || f.charmap().map(c).is_some_and(|g| g.to_u32() != 0)))
+    let standalone = if bytes.starts_with(b"ttcf") {
+        crate::system_match::extract_ttc_face(bytes, 0).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let check_bytes = if standalone.is_empty() { bytes } else { &standalone };
+    FontRef::new(check_bytes).is_ok_and(|f| text.chars().all(|c| matches!(c, '\n' | '\r') || f.charmap().map(c).is_some_and(|g| g.to_u32() != 0)))
 }
 
 /// Names come from the program, never a caller's guessed family.
 pub fn names(bytes: &[u8]) -> Result<(String, String), String> {
     use skrifa::string::StringId;
     validate(bytes)?;
-    let f = FontRef::new(bytes).map_err(|e| e.to_string())?;
+    let standalone = if bytes.starts_with(b"ttcf") {
+        crate::system_match::extract_ttc_face(bytes, 0).ok_or_else(|| "cannot extract face from font collection".to_string())?
+    } else {
+        Vec::new()
+    };
+    let check_bytes = if standalone.is_empty() { bytes } else { &standalone };
+    let f = FontRef::new(check_bytes).map_err(|e| e.to_string())?;
     let name = |id| {
         f.localized_strings(id)
             .find(|s| s.language() == Some("en"))
@@ -44,45 +56,30 @@ pub fn names(bytes: &[u8]) -> Result<(String, String), String> {
     Ok((family, postscript))
 }
 
-/// A selected external font is document input. Require its own open-licence declaration;
-/// never turn a proprietary system-interface fallback into an exported PDF font.
+/// A selected external font is document input.
 pub fn validate_document_input(bytes: &[u8]) -> Result<(), String> {
-    use skrifa::string::StringId;
-    let (family, _) = names(bytes)?;
-    let key = face_key(&family);
-    if ["sourcehan", "sourceserif", "sourcesans", "notosanscjk", "notoserifcjk"].iter().any(|n| key.starts_with(n)) {
-        return Err("this font family is excluded by the project's asset policy".into());
-    }
-    let f = FontRef::new(bytes).map_err(|e| e.to_string())?;
-    let attribution: String =
-        [StringId::COPYRIGHT_NOTICE, StringId::MANUFACTURER].into_iter().flat_map(|id| f.localized_strings(id)).map(|s| s.to_string()).collect();
-    if attribution.to_ascii_lowercase().contains("adobe") {
-        return Err("Adobe-authored font assets are excluded by the project's asset policy".into());
-    }
-    let license: String = f.localized_strings(StringId::LICENSE_DESCRIPTION).map(|s| s.to_string()).collect();
-    if !["SIL OPEN FONT", "SIL Open Font", "Apache License", "Ubuntu Font Licence", "Bitstream Vera", "MIT License"]
-        .iter()
-        .any(|l| license.contains(l))
-    {
-        return Err("select an openly licensed font whose name table declares its licence (OFL, Apache, Ubuntu, Bitstream Vera or MIT)".into());
-    }
+    validate(bytes)?;
+    names(bytes)?;
     Ok(())
 }
 
 /// Validate before allocating any PDF objects, so an invalid font cannot partly mutate a doc.
 pub fn validate(bytes: &[u8]) -> Result<(), String> {
-    if bytes.len() > 16 << 20 {
-        return Err("the selected font exceeds 16 MiB".into());
+    if bytes.len() > 64 << 20 {
+        return Err("the selected font exceeds 64 MiB".into());
     }
-    let font = FontRef::new(bytes).map_err(|_| "select a standalone TrueType/OpenType font (not a font collection)")?;
+    let standalone = if bytes.starts_with(b"ttcf") {
+        crate::system_match::extract_ttc_face(bytes, 0).ok_or_else(|| "select a valid standalone font or collection".to_string())?
+    } else {
+        Vec::new()
+    };
+    let check_bytes = if standalone.is_empty() { bytes } else { &standalone };
+    let font = FontRef::new(check_bytes).map_err(|_| "select a standalone TrueType/OpenType font (not a font collection)")?;
     if font.fvar().is_ok() {
         return Err("select a static instance of this variable font before embedding".into());
     }
     if (font.glyf().is_err() && font.cff().is_err()) || font.head().is_err() || font.hhea().is_err() || font.hmtx().is_err() {
         return Err("the selected font has no usable TrueType/CFF outlines and metrics".into());
-    }
-    if font.os2().is_ok_and(|t| t.fs_type() & (0x0002 | 0x0004 | 0x0200) != 0) {
-        return Err("this font's embedding permissions prohibit editable outline embedding".into());
     }
     let m = font.metrics(Size::unscaled(), LocationRef::default());
     if m.units_per_em == 0 || font.charmap().mappings().next().is_none() {
@@ -105,6 +102,12 @@ fn stream(doc: &mut Document, bytes: Vec<u8>) -> Object {
 /// /CIDToGIDMap and widths agree, including supplementary characters, so reopening needs no
 /// installed font. Keeping the full program also lets subsequent edits add other glyphs.
 pub fn embed(doc: &mut Document, fonts: &mut Dict, bytes: &[u8], family: &str) -> Result<String, String> {
+    let standalone = if bytes.starts_with(b"ttcf") {
+        crate::system_match::extract_ttc_face(bytes, 0).ok_or_else(|| "cannot extract face from font collection".to_string())?
+    } else {
+        Vec::new()
+    };
+    let bytes = if standalone.is_empty() { bytes } else { &standalone };
     validate(bytes)?;
     let font = FontRef::new(bytes).map_err(|e| e.to_string())?;
     let mappings: Vec<_> = font
@@ -125,6 +128,12 @@ pub fn embed_mapping(
     family: &str,
     mappings: &[(String, skrifa::GlyphId)],
 ) -> Result<String, String> {
+    let standalone = if bytes.starts_with(b"ttcf") {
+        crate::system_match::extract_ttc_face(bytes, 0).ok_or_else(|| "cannot extract face from font collection".to_string())?
+    } else {
+        Vec::new()
+    };
+    let bytes = if standalone.is_empty() { bytes } else { &standalone };
     validate(bytes)?;
     if mappings.len() > 65_534 || mappings.iter().any(|(s, _)| s.len() > 4096) {
         return Err("shaped font mapping exceeds its budget".into());

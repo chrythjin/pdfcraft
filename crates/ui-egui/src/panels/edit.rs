@@ -52,6 +52,24 @@ pub(super) fn edit_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g
         ui.label(tl!("Drag the selection to move it. Esc clears the selection."));
         ui.add_space(6.0);
     }
+    // Text scope selector (문단 / 줄 / 단어)
+    widgets::section_title(ui, tl!("Text Scope (Granularity)"));
+    ui.horizontal(|ui| {
+        let current = pdfcraft_engine::current_granularity();
+        for (mode, label) in [
+            (pdfcraft_engine::Granularity::Paragraph, "문단 (Para)"),
+            (pdfcraft_engine::Granularity::Line, "줄 (Line)"),
+            (pdfcraft_engine::Granularity::Word, "단어 (Word)"),
+        ] {
+            let active = current == mode;
+            if ui.selectable_label(active, label).clicked() && !active {
+                pdfcraft_engine::set_granularity(mode);
+                ui.ctx().request_repaint();
+            }
+        }
+    });
+    ui.add_space(4.0);
+
     // Format text at the top while text is selected or being added.
     format_section(app, ui, t);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {

@@ -146,6 +146,23 @@ pub(crate) fn panel(
     let mut out = Outcome::default();
     widgets::section_title(ui, tl!("Format text"));
 
+    ui.horizontal(|ui| {
+        let current = pdfcraft_engine::current_granularity();
+        ui.label(egui::RichText::new("단위:").size(12.0));
+        for (mode, label) in [
+            (pdfcraft_engine::Granularity::Paragraph, "문단"),
+            (pdfcraft_engine::Granularity::Line, "줄"),
+            (pdfcraft_engine::Granularity::Word, "단어"),
+        ] {
+            let active = current == mode;
+            if ui.selectable_label(active, label).clicked() && !active {
+                pdfcraft_engine::set_granularity(mode);
+                ui.ctx().request_repaint();
+            }
+        }
+    });
+    ui.add_space(4.0);
+
     // The font, across the panel.
     ui.spacing_mut().combo_height = 360.0;
     let width = ui.available_width();

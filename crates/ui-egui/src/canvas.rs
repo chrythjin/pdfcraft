@@ -616,7 +616,7 @@ pub struct DocView {
     pub pending_edit: Option<Edit>,
     /// Edit text: the lines per page (with the document generation they were read at), and the
     /// line being edited.
-    pub(crate) edit_lines: HashMap<usize, (u64, Vec<pdfcraft_engine::TextBlock>)>,
+    pub(crate) edit_lines: HashMap<usize, (u64, u8, Vec<pdfcraft_engine::TextBlock>)>,
     pub line_editor: Option<crate::edit_text_ui::LineEditor>,
     /// The paragraph editor whose edit was just queued. It opens again with its typing if the
     /// edit fails, as a refused form field does.

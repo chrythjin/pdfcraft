@@ -26,6 +26,7 @@ mod regions;
 mod session;
 pub use fallback::strip_subset_tag;
 use regions::{alignment_frame, group_blocks, is_centred, rewrite_styled_block};
+pub use regions::{current_granularity, set_granularity, Granularity};
 pub use session::TextSession;
 
 mod blocks;

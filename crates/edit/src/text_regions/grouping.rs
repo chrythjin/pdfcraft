@@ -1,4 +1,4 @@
-use super::{BlockStyle, HashMap, Matrix, TextBlock, TextLine, paragraph_separator, same_base_font, same_font, strip_subset_tag, union};
+use super::{current_granularity, BlockStyle, Granularity, HashMap, Matrix, TextBlock, TextLine, paragraph_separator, same_base_font, same_font, strip_subset_tag, union};
 
 fn same_plane(a: &TextLine, b: &TextLine) -> bool {
     let at = Matrix(a.origin.tm).then(&Matrix(a.origin.ctm));
@@ -235,9 +235,12 @@ fn starts_list_item(row: &[usize], lines: &[TextLine]) -> bool {
 }
 
 fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
+    let gran = current_granularity();
+    let word_mode = gran == Granularity::Word;
+    let line_mode = word_mode || gran == Granularity::Line;
     let mut rows: Vec<Vec<usize>> = Vec::new();
     for (i, line) in lines.iter().enumerate() {
-        let joins = rows.last().and_then(|r| r.last()).and_then(|i| lines.get(*i)).is_some_and(|prev| {
+        let joins = !word_mode && rows.last().and_then(|r| r.last()).and_then(|i| lines.get(*i)).is_some_and(|prev| {
             let gap = line.frame_rect()[0] - prev.frame_rect()[2];
             // OCR words (invisible text over a scan) join only across a word space: a wider gap
             // is a table cell or a tab stop, which a rewrite would close up.
@@ -279,7 +282,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
         let Some(row) = rows.get(row_at) else { continue };
         let Some(first) = row.first().and_then(|i| lines.get(*i)) else { continue };
         let (Some(rect), Some(frame)) = (row_rect(row, lines), frame_row_rect(row, lines)) else { continue };
-        let joins = blocks.last().is_some_and(|block| {
+        let joins = !line_mode && blocks.last().is_some_and(|block| {
             // A bullet of its own opens a list item (#2564): such a row is a new paragraph, and
             // letting it join is what made an edit of the row above delete this item and the ones
             // after it.

@@ -90,16 +90,35 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
         None => {
             let fallback_shown = crate::bidi::to_visual(&text);
             if needs_type3(&text) {
-                let fallback = type3_font(doc, &mut fonts_res, &text, source_family(&target.base_font), target.bold, max_glyphs)?;
-                let runs = type3_encode(&fallback, &fallback_shown)
-                    .ok_or_else(|| EditError::Invalid(format!("\"{text}\" can't be shown by the {} fallback", fallback.family)))?;
-                let size = font_size_before(&ops, first).unwrap_or(target.size);
-                for (name, bytes) in runs {
-                    replacement.push(Op::new("Tf", vec![Object::name(&name), pdfcraft_content::num(size)]));
-                    replacement.push(Op::new("Tj", vec![Object::String(PdfString::literal(bytes))]));
+                if let Some((sys_bytes, family)) = pdfcraft_fonts::system_match::system_matching_font(&target.base_font, &text) {
+                    let sub_name = pdfcraft_fonts::embedding::embed(doc, &mut fonts_res, &sys_bytes, &family).map_err(EditError::Invalid)?;
+                    let size = font_size_before(&ops, first).unwrap_or(target.size);
+                    let font_dict = fonts_res.get(sub_name.as_bytes()).and_then(|f| doc.resolve(f).as_dict().cloned());
+                    if let Some(metrics) = font_dict.as_ref().map(|d| Metrics::from_dict(doc, d)) {
+                        replacement.push(Op::new("Tf", vec![Object::name(&sub_name), pdfcraft_content::num(size)]));
+                        replacement.extend(source_show(
+                            &metrics,
+                            &fallback_shown,
+                            size,
+                            source_space(doc, &fonts_res, &metrics),
+                            target.origin.state.char_spacing,
+                            target.origin.state.word_spacing,
+                        )?);
+                        replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
+                        substituted = Some(family);
+                    }
+                } else {
+                    let fallback = type3_font(doc, &mut fonts_res, &text, source_family(&target.base_font), target.bold, max_glyphs)?;
+                    let runs = type3_encode(&fallback, &fallback_shown)
+                        .ok_or_else(|| EditError::Invalid(format!("\"{text}\" can't be shown by the {} fallback", fallback.family)))?;
+                    let size = font_size_before(&ops, first).unwrap_or(target.size);
+                    for (name, bytes) in runs {
+                        replacement.push(Op::new("Tf", vec![Object::name(&name), pdfcraft_content::num(size)]));
+                        replacement.push(Op::new("Tj", vec![Object::String(PdfString::literal(bytes))]));
+                    }
+                    replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
+                    substituted = Some(format!("{} Type3", fallback.family));
                 }
-                replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
-                substituted = Some(format!("{} Type3", fallback.family));
             } else {
                 let win = pdfcraft_fonts::win_ansi(&fallback_shown);
                 // WinAnsi turns what it can't show into '?'; refuse rather than print the wrong thing.

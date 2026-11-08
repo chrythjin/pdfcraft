@@ -291,6 +291,49 @@ pub(super) fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict
                 out.extend_from_slice(b"Q\n");
                 return Ok((out, res));
             }
+            if pdfcraft_fonts::system_match::has_korean(&t.text)
+                && let Some((sys_bytes, family)) = pdfcraft_fonts::system_match::system_matching_font("", &t.text)
+            {
+                use pdfcraft_fonts::skrifa::{self, MetadataProvider};
+                let standalone = if sys_bytes.starts_with(b"ttcf") {
+                    pdfcraft_fonts::system_match::extract_ttc_face(&sys_bytes, 0).unwrap_or_else(|| sys_bytes.clone())
+                } else {
+                    sys_bytes.clone()
+                };
+                if let Ok(font_ref) = skrifa::FontRef::new(&standalone) {
+                    let charmap = font_ref.charmap();
+                    let mut unique: Vec<char> = t.text.chars().collect();
+                    unique.sort();
+                    unique.dedup();
+                    let mappings: Vec<(String, skrifa::GlyphId)> = unique.into_iter().filter_map(|c| {
+                        let gid = charmap.map(c)?;
+                        Some((c.to_string(), gid))
+                    }).collect();
+                    if let Ok(font_res) = pdfcraft_fonts::embedding::embed_mapping(doc, &mut fonts, &standalone, &family, &mappings) {
+                        res.set(b"Font".to_vec(), Object::Dict(fonts));
+                        let r = text_rect(t);
+                        let [cr, cg, cb] = t.color.map(|v| v.clamp(0.0, 1.0));
+                        out.extend(format!("BT /{font_res} {} Tf {} {} {} rg\n", n(t.size), n(cr), n(cg), n(cb)).bytes());
+                        let all = wrapped(t);
+                        let paragraphs: Vec<usize> = all.iter().map(|(_, _, p)| *p).collect();
+                        for (i, (line, ..)) in all.iter().enumerate() {
+                            let w = latin_width(t, line);
+                            let y = r[3] - (i as f64 * 1.2 + 0.95) * t.size;
+                            let (x, tw) = placed(t, r, &paragraphs, i, w, line.matches(' ').count(), false);
+                            out.extend(format!("1 0 0 1 {} {} Tm {} Tw <", n(x), n(y), n(tw)).bytes());
+                            for ch in line.chars() {
+                                if let Some(pos) = mappings.iter().position(|(s, _)| s == &ch.to_string()) {
+                                    let cid = (pos + 1) as u16;
+                                    out.extend(format!("{:04X}", cid).bytes());
+                                }
+                            }
+                            out.extend_from_slice(b"> Tj\n");
+                        }
+                        out.extend_from_slice(b"ET\nQ\n");
+                        return Ok((out, res));
+                    }
+                }
+            }
             res.set(b"Font".to_vec(), Object::Dict(fonts));
             let r = text_rect(t);
             let [cr, cg, cb] = t.color.map(|v| v.clamp(0.0, 1.0));

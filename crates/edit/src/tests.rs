@@ -10696,3 +10696,26 @@ fn review_inside_scope_group_move_matches_direct_transform_under_outer_scale() {
         }
     }
 }
+
+#[test]
+fn granularity_switching_modes_changes_text_blocks() {
+    let doc = text_page("BT /F1 12 Tf 72 700 Td (Line One) Tj 0 -15 Td (Line Two) Tj ET");
+    // Paragraph mode (default): lines join into 1 block with 2 rows
+    crate::set_granularity(crate::Granularity::Paragraph);
+    let para_blocks = crate::text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(para_blocks.len(), 1);
+    assert_eq!(para_blocks[0].rows.len(), 2);
+    assert_eq!(para_blocks[0].editor_text, "Line One\nLine Two");
+
+    // Line mode: 2 blocks, each with 1 row
+    crate::set_granularity(crate::Granularity::Line);
+    let line_blocks = crate::text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(line_blocks.len(), 2);
+    assert_eq!(line_blocks[0].rows.len(), 1);
+    assert_eq!(line_blocks[1].rows.len(), 1);
+    assert_eq!(line_blocks[0].text, "Line One");
+    assert_eq!(line_blocks[1].text, "Line Two");
+
+    // Reset back to Paragraph
+    crate::set_granularity(crate::Granularity::Paragraph);
+}

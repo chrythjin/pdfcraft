@@ -375,11 +375,12 @@ fn edit_inventory(
     i: usize,
 ) -> (Vec<pdfcraft_engine::TextBlock>, Vec<pdfcraft_engine::PageImage>) {
     let generation = doc.edit_generation();
+    let current_g = pdfcraft_engine::current_granularity() as u8;
     let lines = match view.edit_lines.get(&i) {
-        Some((g, l)) if *g == generation => l.clone(),
+        Some((g, cached_g, l)) if *g == generation && *cached_g == current_g => l.clone(),
         _ => {
             let l = doc.text_blocks(i);
-            view.edit_lines.insert(i, (generation, l.clone()));
+            view.edit_lines.insert(i, (generation, current_g, l.clone()));
             l
         }
     };

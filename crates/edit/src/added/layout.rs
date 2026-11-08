@@ -15,7 +15,23 @@ pub(super) fn norm(r: [f64; 4]) -> [f64; 4] {
 /// The advance of `s` in the item's standard font: its glyphs' widths and the character spacing
 /// after each of them, as `Tc` moves the pen (ISO 32000-2 §9.3.2).
 pub(super) fn latin_width(t: &AddedText, s: &str) -> f64 {
-    t.family.width(s, t.size, t.bold, t.italic) + t.char_spacing * s.chars().count() as f64
+    let mut w = 0.0;
+    let mut latin_buf = String::new();
+    for c in s.chars() {
+        if c > '\u{00FF}' {
+            if !latin_buf.is_empty() {
+                w += t.family.width(&latin_buf, t.size, t.bold, t.italic);
+                latin_buf.clear();
+            }
+            w += t.size;
+        } else {
+            latin_buf.push(c);
+        }
+    }
+    if !latin_buf.is_empty() {
+        w += t.family.width(&latin_buf, t.size, t.bold, t.italic);
+    }
+    w + t.char_spacing * s.chars().count() as f64
 }
 
 /// The lines of a text item after wrapping to its box width.
@@ -139,7 +155,19 @@ pub fn first_undrawable(t: &AddedText) -> Option<char> {
     if !shaped_by_a_face(t) {
         // Drawn line by line in the item's standard font (`\n` splits lines). Without the face
         // that is also how `draw` redraws an existing item, so it's checked that way.
-        return t.text.split('\n').find_map(pdfcraft_fonts::first_non_win_ansi);
+        return t.text.split('\n').find_map(|line| {
+            line.chars().find(|c| {
+                if pdfcraft_fonts::win_ansi_encodable(*c) {
+                    false
+                } else if pdfcraft_fonts::system_match::is_korean(*c)
+                    && pdfcraft_fonts::system_match::system_matching_font("", &c.to_string()).is_some()
+                {
+                    false
+                } else {
+                    true
+                }
+            })
+        });
     }
     // What `shaped_layout` leaves to the standard font, exactly as `draw_shaped` splits it.
     wrapped(t).into_iter().find_map(|(line, rtl, _)| {

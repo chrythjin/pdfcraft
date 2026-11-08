@@ -150,7 +150,7 @@ fn validate(c: &Content) -> Result<(), EditError> {
             let undrawable = if t.text.chars().any(shaped_arabic) && pdfcraft_fonts::document_arabic_font().is_none() {
                 t.text.split('\n').find_map(|line| {
                     line.chars()
-                        .find(|c| !(shaped_arabic(*c) || is_thai(*c) && pdfcraft_fonts::thai_has(*c) || pdfcraft_fonts::win_ansi_encodable(*c)))
+                        .find(|c| !(shaped_arabic(*c) || is_thai(*c) && pdfcraft_fonts::thai_has(*c) || pdfcraft_fonts::win_ansi_encodable(*c) || (pdfcraft_fonts::system_match::is_korean(*c) && pdfcraft_fonts::system_match::system_matching_font("", &c.to_string()).is_some())))
                 })
             } else {
                 first_undrawable(t)

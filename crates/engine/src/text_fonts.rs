@@ -70,7 +70,7 @@ pub fn discover_budgeted(roots: &[PathBuf], mut budget: u64) -> Vec<FontFile> {
                 sorted_children.sort();
                 pending.extend(sorted_children.into_iter().rev().map(|p| (p, depth + 1)));
             }
-        } else if meta.is_file() && meta.len() <= (16 << 20) && font_extension(&path) {
+        } else if meta.is_file() && meta.len() <= (64 << 20) && font_extension(&path) {
             if meta.len() > budget || meta.len() > read_allowance {
                 continue;
             }
@@ -103,7 +103,9 @@ fn font_content_key(bytes: &[u8]) -> (usize, u64) {
     (bytes.len(), h.finish())
 }
 fn font_extension(path: &Path) -> bool {
-    path.extension().and_then(std::ffi::OsStr::to_str).is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf"))
+    path.extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf") || e.eq_ignore_ascii_case("ttc"))
 }
 
 #[cfg(test)]

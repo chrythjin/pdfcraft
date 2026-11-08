@@ -60,21 +60,33 @@ impl FontResolver<'_> {
         {
             return self.embed_face(face.name(), face.bytes, face.family, "the full source font could not be loaded").map(Some);
         }
-        let Some(bytes) = self
+        let source_bytes = self
             .programs
             .entry(source.font.clone())
             .or_insert_with(|| source_program(self.doc, self.fonts, &source.font).map(std::sync::Arc::new))
             .clone()
-            .filter(|bytes| pdfcraft_fonts::embedding::covers(bytes, text))
-        else {
-            return Ok(None);
-        };
-        let key = format!("source {}", source.font);
-        if let Some(name) = self.full_faces.get(&key) {
-            return Ok(Some(name.clone()));
+            .filter(|bytes| pdfcraft_fonts::embedding::covers(bytes, text));
+
+        if let Some(bytes) = source_bytes {
+            let key = format!("source {}", source.font);
+            if let Some(name) = self.full_faces.get(&key) {
+                return Ok(Some(name.clone()));
+            }
+            let family = pdfcraft_fonts::embedding::names(&bytes).map_or_else(|_| source.base_font.clone(), |(family, _)| family);
+            if let Ok(name) = self.embed_face(key, &bytes, &family, "the source font could not be loaded") {
+                return Ok(Some(name));
+            }
         }
-        let family = pdfcraft_fonts::embedding::names(&bytes).map_or_else(|_| source.base_font.clone(), |(family, _)| family);
-        self.embed_face(key, &bytes, &family, "the source font could not be loaded").map(Some)
+
+        if let Some((sys_bytes, family)) = pdfcraft_fonts::system_match::system_matching_font(&source.base_font, text) {
+            let key = format!("system {}", family);
+            if let Some(name) = self.full_faces.get(&key) {
+                return Ok(Some(name.clone()));
+            }
+            return self.embed_face(key, &sys_bytes, &family, "the system font could not be loaded").map(Some);
+        }
+
+        Ok(None)
     }
 
     fn embed_face(&mut self, key: String, bytes: &[u8], family: &str, missing_message: &str) -> Result<String, EditError> {
